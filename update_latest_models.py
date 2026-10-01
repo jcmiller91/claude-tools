@@ -32,6 +32,7 @@ import os
 import stat
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 
@@ -88,6 +89,23 @@ def _sibling_tmp():
     return tmp
 
 
+def _replace_with_retry(src, dst, attempts=5, delay=0.2):
+    """os.replace(), retrying briefly on PermissionError.
+
+    On Windows an antivirus scanner or the search indexer can hold a transient
+    lock on a freshly written file, which surfaces as PermissionError. A few
+    short retries ride that out; on POSIX this just succeeds the first time.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
 # --------------------------------------------------------------- update ---
 
 def check_and_update():
@@ -135,10 +153,26 @@ def check_and_update():
 
     if os.path.exists(HERE):
         try:
-            os.replace(HERE, BACKUP)  # keep a rollback copy
+            _replace_with_retry(HERE, BACKUP)  # keep a rollback copy
         except OSError:
             pass  # backup is nice-to-have; don't block the update
-    os.replace(tmp, HERE)
+    try:
+        _replace_with_retry(tmp, HERE)
+    except OSError as e:
+        # The install itself failed (e.g. a lock that outlasted the retries).
+        # If we already moved HERE aside, put it back so a transient failure
+        # never leaves the script missing, and clean up the temp file.
+        if not os.path.exists(HERE) and os.path.exists(BACKUP):
+            try:
+                os.replace(BACKUP, HERE)
+            except OSError:
+                pass
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        print(f"[self-update] install failed ({e}); keeping current version")
+        return False
     os.chmod(HERE, os.stat(HERE).st_mode | stat.S_IEXEC)
 
     state["sha"] = remote["sha"]
@@ -152,7 +186,7 @@ def check_and_update():
 def main():
     updated = check_and_update()
     if updated and REEXEC_AFTER_UPDATE:
-        print("[self-update] re-executing under the new version…")
+        print("[self-update] re-executing under the new version...")
         # execv replaces the process image without flushing Python's buffers,
         # so flush first or any buffered output (the lines above) is lost when
         # stdout is piped/captured rather than a live terminal.
