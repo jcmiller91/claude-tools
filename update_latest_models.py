@@ -111,10 +111,6 @@ def check_and_update():
     print(f"[self-update] update available: "
           f"{state.get('sha', 'unknown')[:8] or 'unknown'} -> {remote['sha'][:8]}")
 
-    if MODE == "check":
-        print("[self-update] SELF_UPDATE=check — not installing")
-        return False
-
     # Fetch the raw bytes at the exact blob we just inspected.
     status, data = _github_get(remote["download_url"])
     if status != 200:
