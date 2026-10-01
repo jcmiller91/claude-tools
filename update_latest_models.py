@@ -150,6 +150,7 @@ def check_and_update():
 # ---------------------------------------------------------------- main ---
 
 def main():
+    printf("Hello world!")
     updated = check_and_update()
     if updated and REEXEC_AFTER_UPDATE:
         print("[self-update] re-executing under the new version…")
