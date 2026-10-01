@@ -153,6 +153,11 @@ def main():
     updated = check_and_update()
     if updated and REEXEC_AFTER_UPDATE:
         print("[self-update] re-executing under the new version…")
+        # execv replaces the process image without flushing Python's buffers,
+        # so flush first or any buffered output (the lines above) is lost when
+        # stdout is piped/captured rather than a live terminal.
+        sys.stdout.flush()
+        sys.stderr.flush()
         # execv replaces the process, so no duplicate "main" run.
         os.execv(sys.executable, [sys.executable, HERE, *sys.argv[1:]])
 
