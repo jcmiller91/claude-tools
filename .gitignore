@@ -1,0 +1,5 @@
+# Rollback copy written by the self-updater before it replaces itself
+*.bak
+
+# Per-checkout runtime state written by the self-updater
+.selfupdater_state.json
