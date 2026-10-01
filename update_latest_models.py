@@ -95,10 +95,11 @@ def check_and_update():
 
     state = load_state()
 
-    # The file's blob SHA changes exactly when its contents change.
+    # The file's blob SHA changes exactly when its contents change. Query the
+    # default branch and compare blob SHAs below; do NOT pass the stored blob
+    # SHA as ?ref= — ref expects a commit/branch/tag, so a blob SHA 404s.
     url = f"{API}/repos/{OWNER}/{REPO}/contents/{FILE_PATH}"
-    ref = f"?ref={state['sha']}" if "sha" in state else ""
-    status, body = _github_get(url + ref, accept="application/vnd.github+json")
+    status, body = _github_get(url, accept="application/vnd.github+json")
     if status != 200:
         print(f"[self-update] GitHub check failed (HTTP {status}); keeping current version")
         return False
