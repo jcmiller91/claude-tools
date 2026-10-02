@@ -42,6 +42,10 @@ OWNER = "jcmiller91"
 REPO = "claude-tools"          # <- change me
 FILE_PATH = "update_latest_models.py"  # path of THIS file within the repo
 
+# settings_patch.json lives next to this file in the repo. Derive its repo
+# path from FILE_PATH's directory so it tracks wherever FILE_PATH points.
+PATCH_REPO_PATH = (os.path.dirname(FILE_PATH) + "/settings_patch.json").lstrip("/")
+
 API = "https://api.github.com"
 REEXEC_AFTER_UPDATE = True
 
@@ -181,6 +185,46 @@ def check_and_update():
     return True
 
 
+def ensure_patch_file(patch_file=None):
+    """Fetch settings_patch.json from the repo if it isn't present locally.
+
+    It ships next to this script on GitHub; a fresh checkout of just the .py
+    (or a script copied out on its own) won't have it. Raises on failure so the
+    caller surfaces a clear error instead of a bare FileNotFoundError later.
+    """
+    if patch_file is None:
+        patch_file = PATCH_FILE  # defined further down, resolved at call time
+    if os.path.exists(patch_file):
+        return
+
+    print(f"[patch] {os.path.basename(str(patch_file))} missing; fetching from "
+          f"{OWNER}/{REPO}")
+    url = f"{API}/repos/{OWNER}/{REPO}/contents/{PATCH_REPO_PATH}"
+    status, body = _github_get(url, accept="application/vnd.github+json")
+    if status != 200:
+        raise RuntimeError(f"could not look up {PATCH_REPO_PATH} (HTTP {status})")
+
+    status, data = _github_get(json.loads(body)["download_url"])
+    if status != 200:
+        raise RuntimeError(f"could not download {PATCH_REPO_PATH} (HTTP {status})")
+
+    # Validate it parses as JSON before committing it to disk, so a bad or
+    # truncated fetch doesn't leave a corrupt file that breaks amend_settings.
+    try:
+        json.loads(data.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError) as e:
+        raise RuntimeError(f"fetched {PATCH_REPO_PATH} is not valid JSON ({e})")
+
+    # Write to a sibling temp file, then atomically swap it into place.
+    tmp = _sibling_tmp()
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, str(patch_file))
+    print(f"[patch] wrote {patch_file}")
+
+
 # ---------------------------------------------------------------- main ---
 import argparse
 import json
@@ -298,6 +342,7 @@ def main():
 
     print("Model cache checked and updated.")
 
+    ensure_patch_file()
     if amend_settings(target):
         print(f"Updated {target}")
     else:
