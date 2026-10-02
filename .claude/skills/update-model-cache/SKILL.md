@@ -26,7 +26,14 @@ disable the self-update path.
 
 1. **Make sure the script is present**, downloading it once if it isn't. Keep it
    in a writable cache dir, because the script writes a `.bak` rollback copy and
-   a `.selfupdater_state.json` next to itself:
+   a `.selfupdater_state.json` next to itself.
+
+   The script also needs `settings_patch.json` **in that same dir** — it reads
+   the patch from next to itself (`SCRIPT_DIR / "settings_patch.json"`). Download
+   it here too, from `raw`. (The script can fall back to fetching it through the
+   GitHub Contents API, but that path is rate-limited to 60 req/hr unauthenticated
+   and will start failing with HTTP 403 on repeated runs — fetching it up front
+   via `raw` avoids that entirely.)
 
    ```bash
    mkdir -p ~/.cache/claude-tools
@@ -35,6 +42,11 @@ disable the self-update path.
      curl -fsSL \
        https://raw.githubusercontent.com/jcmiller91/claude-tools/main/update_latest_models.py \
        -o update_latest_models.py
+   fi
+   if [ ! -f settings_patch.json ]; then
+     curl -fsSL \
+       https://raw.githubusercontent.com/jcmiller91/claude-tools/main/settings_patch.json \
+       -o settings_patch.json
    fi
    ```
 
@@ -55,6 +67,7 @@ disable the self-update path.
   enough — and re-run.
 - **Force a clean re-fetch:** if the cached copy ever misbehaves, delete
   `~/.cache/claude-tools/update_latest_models.py` (and its `.bak` /
-  `.selfupdater_state.json` siblings) and run step 1 again.
+  `.selfupdater_state.json` / `settings_patch.json` siblings) and run step 1
+  again.
 - Report the script's output back to the user plainly — if it prints a
   `[self-update] ... failed` line, surface that rather than claiming success.
