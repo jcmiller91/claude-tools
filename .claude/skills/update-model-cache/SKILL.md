@@ -8,6 +8,7 @@ description: >-
   in this repo — even if they don't name the script. The script fetches the
   current version of itself from GitHub and keeps itself up to date, so running
   it both installs and refreshes it.
+model: claude-4-5-haiku
 ---
 
 # Update model cache
