@@ -1,0 +1,13 @@
+{ "hooks": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Get-Date | Out-File -Append \\$env:USERPROFILE\\\\claude-sessions.log\""
+            }
+          ]
+        }
+      ]
+    }
+  }

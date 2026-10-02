@@ -182,21 +182,126 @@ def check_and_update():
 
 
 # ---------------------------------------------------------------- main ---
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve()
+SCRIPT_DIR = HERE.parent
+
+# JSON shipped next to this script: the data to add to settings.json
+PATCH_FILE = SCRIPT_DIR / "settings_patch.json"
+
+REEXEC_AFTER_UPDATE = True
+
+
+def check_and_update() -> bool:
+    """PLACEHOLDER: replace with your real self-update function.
+    Return True if the script was updated on disk, otherwise False."""
+    print("[self-update] up to date")
+    return False
+
+
+def resolve_target(scope: str) -> Path:
+    if scope == "user":      # all projects
+        base = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+        return base / "settings.json"
+    if scope == "project":   # current project, shared (usually committed)
+        return Path.cwd() / ".claude" / "settings.json"
+    if scope == "local":     # current project, personal (not committed)
+        return Path.cwd() / ".claude" / "settings.local.json"
+    raise ValueError(f"unknown scope: {scope}")
+
+
+def deep_merge(base, patch):
+    """Merge patch into base. Dicts merge recursively, lists are unioned
+    (no duplicates), anything else is overwritten by the patch value."""
+    if isinstance(base, dict) and isinstance(patch, dict):
+        for key, value in patch.items():
+            base[key] = deep_merge(base[key], value) if key in base else value
+        return base
+    if isinstance(base, list) and isinstance(patch, list):
+        for item in patch:
+            if item not in base:
+                base.append(item)
+        return base
+    return patch
+
+
+def amend_settings(target: Path, patch_file: Path = PATCH_FILE) -> bool:
+    """Merge patch_file into target. Returns True if the target file changed."""
+    patch = json.loads(patch_file.read_text(encoding="utf-8-sig"))
+
+    if target.exists():
+        raw = target.read_text(encoding="utf-8-sig")
+        # If this raises, we stop here and the original file is untouched
+        current = json.loads(raw) if raw.strip() else {}
+        if not isinstance(current, dict):
+            raise ValueError(f"{target} does not contain a JSON object")
+    else:
+        current = {}
+
+    merged = deep_merge(json.loads(json.dumps(current)), patch)  # merge into a copy
+    if merged == current:
+        return False  # nothing to do
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    # Keep a backup of the original (only once, never overwritten)
+    if target.exists():
+        backup = target.with_suffix(target.suffix + ".bak")
+        if not backup.exists():
+            shutil.copy2(target, backup)
+
+    # Write to a temp file in the same folder, then swap it in atomically
+    fd, tmp_name = tempfile.mkstemp(dir=target.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp_name, target)
+    except BaseException:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+        raise
+    return True
+
 
 def main():
+    parser = argparse.ArgumentParser(description="Merge settings_patch.json into Claude Code settings.")
+    parser.add_argument(
+        "--scope",
+        choices=["user", "project", "local"],
+        default="user",
+        help="user = all projects, project = current project (shared), "
+             "local = current project (personal, not committed)",
+    )
+    args = parser.parse_args()
+    target = resolve_target(args.scope)
+
     print("Hello world!")
     updated = check_and_update()
     if updated and REEXEC_AFTER_UPDATE:
         print("[self-update] re-executing under the new version...")
-        # execv replaces the process image without flushing Python's buffers,
-        # so flush first or any buffered output (the lines above) is lost when
-        # stdout is piped/captured rather than a live terminal.
         sys.stdout.flush()
         sys.stderr.flush()
-        # execv replaces the process, so no duplicate "main" run.
-        os.execv(sys.executable, [sys.executable, HERE, *sys.argv[1:]])
+        if sys.platform == "win32":
+            # Windows has no real execv: run the new version, wait, pass on its exit code
+            sys.exit(subprocess.call([sys.executable, str(HERE), *sys.argv[1:]]))
+        else:
+            os.execv(sys.executable, [sys.executable, str(HERE), *sys.argv[1:]])
 
-    print(f"Model cache checked and updated.");
+    print("Model cache checked and updated.")
+
+    if amend_settings(target):
+        print(f"Updated {target}")
+    else:
+        print(f"{target} already up to date.")
 
 
 if __name__ == "__main__":
